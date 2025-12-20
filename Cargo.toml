@@ -1,0 +1,10 @@
+[workspace]
+
+members = [
+  # Ordering here apparently defines release order:
+  "tower-gcra",
+]
+resolver = "3"
+
+[patch.crates-io]
+governor = { version = "=0.10.2", path = "../governor/governor" }

@@ -1,0 +1,36 @@
+#+TITLE: tower-gcra
+#+DESCRIPTION: Tower middleware for rate-limiting based on GCRA
+#+AUTHOR: Michael Herstine
+#+EMAIL: sp1ff@pobox.com
+#+DATE: <2025-12-19 Fri 21:10>
+#+AUTODATE: t
+#+OPTIONS: toc:nil org-md-headline-style:setext *:t ^:nil
+#+STARTUP: overview
+
+* Introduction
+
+tower-gcra is a [[https://github.com/tower-rs/tower][tower]] Layer that provides rate-limiting via the [[https://brandur.org/rate-limiting][Generic Cell Rate Algorithm]] (AKA GCRA). [[https://en.wikipedia.org/wiki/Generic_cell_rate_algorithm][GCRA]] is a particularly effective variant of the [[https://grokipedia.com/page/Leaky_bucket][Leaky Bucket]] rate-limiting algorithm. tower-gcra depends on the [[https://github.com/antifuchs/governor][governor]] crate for the core GCRA implementation.
+
+This crate differs from [[https://github.com/benwis/tower-governor#][tower-governor]] in a few ways:
+
+  - it works in terms of arbitrary requests, rather than [[https://docs.rs/http/latest/http/][http]] requests
+  - it provides support for "direct" key-rating; i.e. specifying a single quota for all requests
+  - when using "keyed" rate limiting (i.e. tracking per-key quota, where a key can be a peer IP address, a =Host= header &c), it makes use of [[https://github.com/antifuchs/governor][governor]]'s recently added feature of per-key quotas, so you can define a default per-key rate limit, but tune requests to or from certain destinations more carefully
+  - unlike [[https://github.com/benwis/tower-governor#][tower-governor]], backpressure appears in the form of pending Futures: in [[https://github.com/benwis/tower-governor#][tower-governor]], over-quota calls will be met with a 429 Too May Requests from =call()=, while in tower-gcra, when your client has exceeded its quota, calls to =poll_ready()= or =call()= (depending on the particular variant of rate limit in question) won't resolve until quota is available again
+  - since you client may be running in a cluster, tower-gcra allows for a distributed state store so as to limit incoming or outgoing requests across the cluster
+* License
+
+tower-gcra is released under the [[https://spdx.org/licenses/GPL-3.0-or-later.html][GPL v3.0]].
+* Prerequisites
+
+tower-gcra uses the Rust 2024 edition, so Rust 1.85 is required.
+* Installation
+
+#+BEGIN_SRC bash
+  cargo add tower-gcra
+#+END_SRC
+* Status & Roadmap
+
+This is a new crate. I've chosen the version number (0.x) in an attempt to convey that.
+
+Bugs, comments, suggestions and contributions are welcome, on [[https://x.com/unwoundstack][X]], [[https://indieweb.social/@sp1ff][Mastodon]], in the [[https://github.com/sp1ff/tower-gcra/issues][issues]] or at [[mailto:sp1ff@pobox.com][sp1ff@pobox.com]].

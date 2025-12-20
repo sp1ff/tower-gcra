@@ -1,0 +1,14 @@
+[package]
+name = "tower-gcra"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+futures = "0.3.31"
+governor = "=0.10.2"
+snafu = "0.8.9"
+tower = { version = "0.5.2", features = ["util"] }
+
+[dev-dependencies]
+itertools = "0.14.0"
+tokio = { version = "1.48.0", features = ["macros", "rt"] }
