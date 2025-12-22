@@ -10,5 +10,6 @@ snafu = "0.8.9"
 tower = { version = "0.5.2", features = ["util"] }
 
 [dev-dependencies]
+dashmap = "6.1.0"
 itertools = "0.14.0"
 tokio = { version = "1.48.0", features = ["macros", "rt"] }

@@ -505,6 +505,7 @@ mod first_test {
     // have it take "requests" of type `usize`, and have it echo the request back to the caller.
     use std::{collections::HashMap, convert::Infallible, num::NonZeroU32, sync::RwLock};
 
+    use dashmap::DashMap;
     use governor::{Quota, clock::QuantaClock, gcra::Gcra};
     use itertools::Itertools;
     use tower::ServiceExt;
@@ -591,17 +592,17 @@ mod first_test {
     // Next, I need some middleware. Seems like this should be in the governor crate (?)
     #[derive(Debug)]
     struct KeyedHashmapMiddleware {
-        // Pretty-sure we need to be clone, so...
-        keys: Arc<RwLock<HashMap<usize, Gcra>>>,
+        // The MW doesn't have to be Clone
+        keys: RwLock<HashMap<usize, Gcra>>,
     }
 
     impl KeyedHashmapMiddleware {
         pub fn new() -> Self {
             Self {
-                keys: Arc::new(RwLock::new(HashMap::from([(
+                keys: RwLock::new(HashMap::from([(
                     1,
                     Gcra::new(Quota::per_second(NonZeroU32::new(2).unwrap())),
-                )]))),
+                )])),
             }
         }
     }
@@ -626,10 +627,7 @@ mod first_test {
             key: &usize,
             f: &dyn Fn(&Gcra) -> Result<Self::PositiveOutcome, Self::NegativeOutcome>,
         ) -> Option<Result<Self::PositiveOutcome, Self::NegativeOutcome>> {
-            // self.keys.read().unwrap().get(key).map(|gcra| f(gcra))
-            let res = self.keys.read().unwrap().get(key).map(|gcra| f(gcra));
-            eprintln!("check_quota({key}) returning {res:#?}");
-            res
+            self.keys.read().unwrap().get(key).map(|gcra| f(gcra))
         }
     }
 
@@ -639,6 +637,76 @@ mod first_test {
         let key_extractor = RecordingRequestKeyExtractor;
         let limiter = governor::RateLimiter::keyed(Quota::per_second(NonZeroU32::new(1).unwrap()))
             .use_middleware(KeyedHashmapMiddleware::new());
+        let mut governor = KeyedGovernor::new(inner, key_extractor, limiter);
+
+        governor.ready().await.unwrap().call(0).await.unwrap();
+        governor.ready().await.unwrap().call(0).await.unwrap(); // 0: Should be rate limited
+        governor.ready().await.unwrap().call(1).await.unwrap(); // 1: Should go through
+        governor.ready().await.unwrap().call(1).await.unwrap(); // 2: Should go through
+        governor.ready().await.unwrap().call(0).await.unwrap(); // 3: Should be rate limited
+        governor.ready().await.unwrap().call(2).await.unwrap(); // 4: Should go through-- new key
+
+        eprintln!("{:#?}", governor.inner());
+
+        let intervals = governor.inner().intervals();
+        eprintln!("{}", intervals[0].as_millis());
+        assert!(intervals[0].as_millis() >= 999);
+        eprintln!("{}", intervals[1].as_millis());
+        assert!(intervals[1].as_millis() < 1);
+        eprintln!("{}", intervals[2].as_millis());
+        assert!(intervals[2].as_millis() < 1);
+        eprintln!("{}", intervals[3].as_millis());
+        assert!(intervals[3].as_millis() >= 999);
+        eprintln!("{}", intervals[4].as_millis());
+        assert!(intervals[4].as_millis() < 1);
+    }
+
+    // Now, let's see if we can get rid of that lock
+    #[derive(Debug)]
+    struct KeyedDashmapMiddleware {
+        keys: DashMap<usize, Gcra>,
+    }
+
+    impl KeyedDashmapMiddleware {
+        pub fn new() -> Self {
+            Self {
+                keys: DashMap::from_iter(
+                    [(1, Gcra::new(Quota::per_second(NonZeroU32::new(2).unwrap())))].into_iter(),
+                ),
+            }
+        }
+    }
+
+    impl RateLimitingMiddleware<usize, <QuantaClock as Clock>::Instant> for KeyedDashmapMiddleware {
+        type PositiveOutcome = ();
+
+        type NegativeOutcome = NotUntil<<QuantaClock as Clock>::Instant>;
+
+        fn allow(_: &usize, _: impl Into<governor::gcra::StateSnapshot>) -> Self::PositiveOutcome {}
+
+        fn disallow(
+            _: &usize,
+            state: impl Into<governor::gcra::StateSnapshot>,
+            start_time: <QuantaClock as Clock>::Instant,
+        ) -> Self::NegativeOutcome {
+            NotUntil::new(state.into(), start_time)
+        }
+
+        fn check_quota(
+            &self,
+            key: &usize,
+            f: &dyn Fn(&Gcra) -> Result<Self::PositiveOutcome, Self::NegativeOutcome>,
+        ) -> Option<Result<Self::PositiveOutcome, Self::NegativeOutcome>> {
+            self.keys.get(key).map(|gcra| f(gcra.value()))
+        }
+    }
+
+    #[tokio::test]
+    async fn keyed_rate_limiting_with_dashmap_smoke_test() {
+        let inner = RecordingService::new();
+        let key_extractor = RecordingRequestKeyExtractor;
+        let limiter = governor::RateLimiter::keyed(Quota::per_second(NonZeroU32::new(1).unwrap()))
+            .use_middleware(KeyedDashmapMiddleware::new());
         let mut governor = KeyedGovernor::new(inner, key_extractor, limiter);
 
         governor.ready().await.unwrap().call(0).await.unwrap();
