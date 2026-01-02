@@ -56,11 +56,11 @@ where
     C: Clock,
     MW: RateLimitingMiddleware<NotKeyed, C::Instant>,
 {
-    pub fn new(inner: S, limiter: RateLimiter<NotKeyed, KS, C, MW>) -> Self {
+    pub fn new(inner: S, limiter: Arc<RateLimiter<NotKeyed, KS, C, MW>>) -> Self {
         Self {
             inner,
             phantom: PhantomData,
-            limiter: Arc::new(limiter),
+            limiter,
         }
     }
     pub fn inner(&self) -> &S {
@@ -92,6 +92,7 @@ pin_project! {
 }
 
 pin_project! {
+    // Has to be `pub`, since it's named (as the associated type `Future`) in `Service`, below
     pub struct CallFuture<Request, S, KS, C, MW>
     where S: Service<Request>,
           KS: DirectStateStore,
@@ -214,6 +215,29 @@ where
     }
 }
 
+pub struct Layer<Request, KS, C, MW>
+where
+    KS: DirectStateStore,
+    C: Clock,
+    MW: RateLimitingMiddleware<NotKeyed, C::Instant>,
+{
+    limiter: Arc<RateLimiter<NotKeyed, KS, C, MW>>,
+    phantom: PhantomData<Request>,
+}
+
+impl<S, Request, KS, C, MW> tower::Layer<S> for Layer<Request, KS, C, MW>
+where
+    KS: DirectStateStore,
+    C: Clock,
+    MW: RateLimitingMiddleware<NotKeyed, C::Instant>,
+{
+    type Service = DirectGovernor<S, Request, KS, C, MW>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        DirectGovernor::new(inner, self.limiter.clone())
+    }
+}
+
 #[cfg(test)]
 mod first_test {
     use governor::Quota;
@@ -226,7 +250,9 @@ mod first_test {
     #[tokio::test]
     async fn direct_rate_limiting_smoke_test() {
         let inner = RecordingService::new();
-        let limiter = governor::RateLimiter::direct(Quota::per_second(nonzero!(1u32)));
+        let limiter = Arc::new(governor::RateLimiter::direct(Quota::per_second(nonzero!(
+            1u32
+        ))));
         let mut governor = DirectGovernor::new(inner, limiter);
 
         for i in 0..3 {

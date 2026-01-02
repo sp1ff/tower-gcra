@@ -70,13 +70,13 @@ where
     pub fn new(
         inner: S,
         key_extractor: KE,
-        limiter: RateLimiter<<KE as KeyExtractor<Request>>::Key, KS, C, MW>,
+        limiter: Arc<RateLimiter<<KE as KeyExtractor<Request>>::Key, KS, C, MW>>,
     ) -> Self {
         Self {
             inner,
             key_extractor,
             phantom: PhantomData,
-            limiter: Arc::new(limiter),
+            limiter,
         }
     }
     pub fn inner(&self) -> &S {
@@ -272,6 +272,32 @@ where
     }
 }
 
+pub struct Layer<Request, KE, KS, C, MW>
+where
+    KE: KeyExtractor<Request> + Clone,
+    KS: KeyedStateStore<<KE as KeyExtractor<Request>>::Key>,
+    C: Clock,
+    MW: RateLimitingMiddleware<<KE as KeyExtractor<Request>>::Key, C::Instant>,
+{
+    key_extractor: KE,
+    limiter: Arc<RateLimiter<<KE as KeyExtractor<Request>>::Key, KS, C, MW>>,
+    phantom: PhantomData<Request>,
+}
+
+impl<S, KE, Request, KS, C, MW> tower::Layer<S> for Layer<Request, KE, KS, C, MW>
+where
+    KE: KeyExtractor<Request> + Clone,
+    KS: KeyedStateStore<<KE as KeyExtractor<Request>>::Key>,
+    C: Clock,
+    MW: RateLimitingMiddleware<<KE as KeyExtractor<Request>>::Key, C::Instant>,
+{
+    type Service = KeyedGovernor<S, KE, Request, KS, C, MW>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        KeyedGovernor::new(inner, self.key_extractor.clone(), self.limiter.clone())
+    }
+}
+
 #[cfg(test)]
 mod first_test {
     use std::{collections::HashMap, convert::Infallible, num::NonZeroU32, sync::RwLock};
@@ -345,7 +371,7 @@ mod first_test {
         let key_extractor = RecordingRequestKeyExtractor;
         let limiter = governor::RateLimiter::keyed(Quota::per_second(NonZeroU32::new(1).unwrap()))
             .use_middleware(KeyedHashmapMiddleware::new());
-        let mut governor = KeyedGovernor::new(inner, key_extractor, limiter);
+        let mut governor = KeyedGovernor::new(inner, key_extractor, Arc::new(limiter));
 
         governor.ready().await.unwrap().call(0).await.unwrap();
         governor.ready().await.unwrap().call(0).await.unwrap(); // 0: Should be rate limited
@@ -408,7 +434,7 @@ mod first_test {
         let key_extractor = RecordingRequestKeyExtractor;
         let limiter = governor::RateLimiter::keyed(Quota::per_second(NonZeroU32::new(1).unwrap()))
             .use_middleware(KeyedDashmapMiddleware::new());
-        let mut governor = KeyedGovernor::new(inner, key_extractor, limiter);
+        let mut governor = KeyedGovernor::new(inner, key_extractor, Arc::new(limiter));
 
         governor.ready().await.unwrap().call(0).await.unwrap();
         governor.ready().await.unwrap().call(0).await.unwrap(); // 0: Should be rate limited
