@@ -15,8 +15,10 @@
 
 #![cfg(test)]
 
-/// I suppose it would be more accurate to call this `test-scaffolding` or something like that, but
-/// this is more succinct.
+//! # A Trivial Service for Testing Purposes
+//!
+//! I suppose it would be more accurate to call this `test-scaffolding` or something like that, but
+//! this is more succinct.
 use std::{
     convert::Infallible,
     result::Result as StdResult,
@@ -25,52 +27,6 @@ use std::{
 
 use itertools::Itertools;
 use tower::Service;
-
-// #[derive(Debug, Clone)]
-// pub(crate) struct RecordingService<C: Clock> {
-//     calls: Arc<RwLock<Vec<(usize, C::Instant)>>>,
-//     clock: C,
-// }
-
-// impl<C: Clock + Default> RecordingService<C> {
-//     pub fn new() -> Self {
-//         Self {
-//             calls: Arc::new(RwLock::new(Vec::new())),
-//             clock: Default::default(),
-//         }
-//     }
-//     pub fn intervals(&self) -> Vec<Nanos> {
-//         use governor::clock::Reference;
-//         self.calls
-//             .read()
-//             .unwrap()
-//             .iter()
-//             .tuple_windows()
-//             .map(|((_, then), (_, now))| now.duration_since(*then))
-//             .collect()
-//     }
-// }
-
-// impl<C: Clock> Service<usize> for RecordingService<C> {
-//     type Response = usize;
-
-//     type Error = Infallible;
-
-//     type Future = futures::future::Ready<Result<usize, Infallible>>;
-
-//     fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> Poll<StdResult<(), Self::Error>> {
-//         Poll::Ready(Ok(()))
-//     }
-
-//     fn call(&mut self, req: usize) -> Self::Future {
-//         self.calls.write().unwrap().push((req, self.clock.now()));
-//         eprintln!(
-//             "Recording service called: {:#?}",
-//             self.calls.read().unwrap()
-//         );
-//         futures::future::ok(req)
-//     }
-// }
 
 #[derive(Debug, Clone)]
 pub(crate) struct RecordingService {
@@ -113,10 +69,6 @@ impl Service<usize> for RecordingService {
             .write()
             .unwrap()
             .push((req, std::time::Instant::now()));
-        eprintln!(
-            "Recording service called: {:#?}",
-            self.calls.read().unwrap()
-        );
         futures::future::ok(req)
     }
 }

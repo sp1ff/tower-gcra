@@ -2,22 +2,32 @@
 #+DESCRIPTION: Tower middleware for rate-limiting based on GCRA
 #+AUTHOR: Michael Herstine
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2025-12-19 Fri 21:10>
+#+DATE: <2026-01-03 Sat 07:41>
 #+AUTODATE: t
 #+OPTIONS: toc:nil org-md-headline-style:setext *:t ^:nil
 #+STARTUP: overview
 
 * Introduction
 
-tower-gcra is a [[https://github.com/tower-rs/tower][tower]] Layer that provides rate-limiting via the [[https://brandur.org/rate-limiting][Generic Cell Rate Algorithm]] (AKA GCRA). [[https://en.wikipedia.org/wiki/Generic_cell_rate_algorithm][GCRA]] is a particularly effective variant of the [[https://grokipedia.com/page/Leaky_bucket][Leaky Bucket]] rate-limiting algorithm. tower-gcra depends on the [[https://github.com/antifuchs/governor][governor]] crate for the core GCRA implementation.
+tower-gcra is a [[https://github.com/tower-rs/tower][tower]] middleware that provides rate-limiting; that is, it limits that rate at which requests are processed by the [[https://docs.rs/tower/latest/tower/trait.Service.html][Service]] which it wraps. It does so via the [[https://brandur.org/rate-limiting][Generic Cell Rate Algorithm]] (AKA GCRA). [[https://en.wikipedia.org/wiki/Generic_cell_rate_algorithm][GCRA]] is a particularly effective variant of the [[https://grokipedia.com/page/Leaky_bucket][Leaky Bucket]] approach to rate-limiting.
 
-This crate differs from [[https://github.com/benwis/tower-governor#][tower-governor]] in a few ways:
+In particular, tower-gcra provides for both "direct" and "keyed" rate-limiting. The former defines a single quota governing the rate at which all requests will be processed. The latter defines "per-key" state, where a key is some aspect of the requests being serviced (the peer IP address, for instance), so that the quota applies per instance of that key (when the key is peer IP address, this would mean that each peer IP is rate-limited individually). Furthermore, tower-gcra allows per-key _quotas_ as well (so, for instance, we could build a rate-limiting client that applies different rate limits depending on the destination).
 
-  - it works in terms of arbitrary requests, rather than [[https://docs.rs/http/latest/http/][http]] requests
-  - it provides support for "direct" key-rating; i.e. specifying a single quota for all requests
-  - when using "keyed" rate limiting (i.e. tracking per-key quota, where a key can be a peer IP address, a =Host= header &c), it makes use of [[https://github.com/antifuchs/governor][governor]]'s recently added feature of per-key quotas, so you can define a default per-key rate limit, but tune requests to or from certain destinations more carefully
-  - unlike [[https://github.com/benwis/tower-governor#][tower-governor]], backpressure appears in the form of pending Futures: in [[https://github.com/benwis/tower-governor#][tower-governor]], over-quota calls will be met with a 429 Too May Requests from =call()=, while in tower-gcra, when your client has exceeded its quota, calls to =poll_ready()= or =call()= (depending on the particular variant of rate limit in question) won't resolve until quota is available again
-  - since you client may be running in a cluster, tower-gcra allows for a distributed state store so as to limit incoming or outgoing requests across the cluster
+tower-gcra depends on the [[https://github.com/antifuchs/governor][governor]] crate for the core GCRA implementation. At the time of this writing, the per-key quota functionality depends on an as-yet-unmerged governor [[https://github.com/boinkor-net/governor/pull/292][PR]].
+** Comparisons To Other tower Rate-Limiting Crates
+
+*** RateLimit
+
+[[https://github.com/tower-rs/tower][tower]] ships with a rate-limiting middleware: [[https://docs.rs/tower/latest/tower/limit/rate/struct.RateLimit.html][RateLimit]]. [[https://docs.rs/tower/latest/tower/limit/rate/struct.RateLimit.html][RateLimit]] "enforces a rate limit on the number of requests the underlying service can handle over a period of time." And indeed, it counts the number of requests per given unit of time & will pend any request over & above the given permissible number. In this way it differs from Leaky Bucket in that a client can make requests at an arbitrarily high rate until it exhausts its quota for any given time period.
+
+When rate-limited, calls to =poll_ready()= will pend (not =call()=), which seems preferrable. This crate doesn't do that because without a request, we can't extract a key for rate-limiting.
+
+[[https://docs.rs/tower/latest/tower/limit/rate/struct.RateLimit.html][RateLimit]] is not =Clone=, which can be inconvenient. For instance, [[https://docs.rs/tower/latest/tower/retry/struct.Retry.html][RetryLayer]] requries that the =Service= it wraps be =Clone=. The suggested [[https://github.com/tokio-rs/axum/discussions/987#discussioncomment-2678595][workaround]] is to wrap it in a [[https://docs.rs/tower/latest/tower/buffer/struct.BufferLayer.html][BufferLayer]]. Regrettably, that erases the inner error type to =Box<dyn Error + Send + Sync>=.
+*** tower-governor
+
+[[https://docs.rs/tower_governor/latest/tower_governor/index.html][tower-governor]] is another tower middleware building on the governor crate, but is explicitly targeted at HTTP servers. For instance, it only implements =Service= for [[https://docs.rs/http/latest/http/index.html][http]] [[https://docs.rs/http/latest/http/request/struct.Request.html][Request]]s, and rather than pending rate-limited requests, it returns an HTTP 429 Too Many Requests response, taking care to insert "X-RateLimit-After" and "Retry-After" headers.
+
+It is, however, =Clone=. It, like this crate, handles rate-limiting in =call()= (rather than =poll_ready()=), presumably also because it has access to the incoming request there. Lastly, at the time of this writing, it doesn't support per-key quotas.
 * License
 
 tower-gcra is released under the [[https://spdx.org/licenses/GPL-3.0-or-later.html][GPL v3.0]].

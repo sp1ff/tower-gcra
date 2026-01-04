@@ -13,8 +13,23 @@
 // You should have received a copy of the GNU General Public License along with tower-gcra. If not,
 // see <http://www.gnu.org/licenses/>.
 
+//! # Keyed Rate Limiting
+//!
+//! ## Introduction
+//!
+//! [tower-gcra](crate) supports both "direct" and "keyed" [tower] [Layer]s. This module implements
+//! the latter. A keyed rate-limiter maintains rate-limiting state per key, where by "key" we mean
+//! some request attribute (the value of the Host header for HTTP requests, for instance). The
+//! [tower] [Service] trait is actually implemented on type [Governor].
+//! The reader may also be interested in the discussion [here].
+//!
+//! [tower]: https://docs.rs/tower/latest/tower/index.html
+//! [Layer]: https://docs.rs/tower/latest/tower/trait.Layer.html
+//! [here]: https://docs.rs/governor/latest/governor/_guide/index.html
+
 use std::{
     error::Error as StdError,
+    hash::Hash,
     marker::PhantomData,
     pin::Pin,
     result::Result as StdResult,
@@ -25,29 +40,58 @@ use std::{
 
 use either::Either;
 use governor::{
-    NotUntil, RateLimiter, clock::Clock, middleware::RateLimitingMiddleware,
-    state::keyed::KeyedStateStore,
+    NotUntil, Quota, RateLimiter,
+    clock::{Clock, DefaultClock},
+    middleware::{NoOpMiddleware, RateLimitingMiddleware},
+    state::keyed::{DefaultKeyedStateStore, KeyedStateStore},
 };
 use pin_project_lite::pin_project;
 use tokio::time::{Sleep, sleep};
 use tower::Service;
 
-// This is similar to tower_governor::key_extractor::KeyExtractor, except his implementation
-// expects an http::request::Request<T>. IOW, I think `tower-governor` is meant to work with
-// tower-http, whereas this can work with just tower.
+/// Types implementing `KeyExtractor<Request>` extract rate-limiting keys from `Request`s.
+/// A "key" is any type that implements [Hash].
 pub trait KeyExtractor<Request> {
-    type Key: std::hash::Hash;
+    type Key: Hash;
     type Error: StdError + Send + Sync + 'static;
     fn extract(&self, req: &Request) -> StdResult<Self::Key, Self::Error>;
 }
 
 /// A [tower] [Service] that rate-limits requests using keyed rate limiting
-// Do I actually want this to be Clone? How to prevent evading rate limits by simply cloning
-// instances? Why can this be Clone, but tower::limit::rate::RateLimit can't?
-// I think it's OK, since the rate-limiting will be in the (shared, single instance) of
-// the RateLimiter itself.
+///
+/// ## Constructing a Governor
+///
+/// The [Governor] type is a generic parameterized by five type variables:
+///
+/// - S: the "inner" service which will see its requests rate-limited by the [Governor]
+/// - KE: the key extractor
+/// - KS: an implementation of [KeyedStateStore], which implements state storage for the Governor
+/// - C: an implementation of the [Clock] trait, which defines the time source
+/// - MW: an implementation of [RateLimitingMiddleware]
+///
+/// The caller will presumably already have a [Service] for which they're interested in
+/// rate-limiting incoming requests. The caller is also expected to have a [KeyExtractor]
+/// implementation suitable to their use case. The final three are defined by the [governor] crate
+/// which also supplies various implementations.
+///
+/// The simplest way to construct a [Governor] instance is the [default()](Governor::default)
+/// method, which takes the inner [Service] and the [Quota] to be enforced, selecting default
+/// implementations for all other types.
+///
+/// The most flexible way to construct a [Governor] instance is the [new()][Governor::new] method,
+/// which will accept arguments of all four types.
+///
+/// Finally, if you've already constructed a [RateLimiter], you can create a [Governor] instance via
+/// [new_with_limiter()](Governor::new_with_limiter).
+///
+/// All this said, one is more likely to construct an instance indirectly through [Layer].
+///
+/// ## On Governor Being `Clone`
+///
+/// [Governor] instances can be cloned; they share a reference (via an [Arc]) to a single rate
+/// limiter, so cloning won't result in rate limits being evaded.
 #[derive(Clone)]
-pub struct KeyedGovernor<S, KE, Request, KS, C, MW>
+pub struct Governor<S, KE, Request, KS, C, MW>
 where
     KE: KeyExtractor<Request> + Clone,
     KS: KeyedStateStore<<KE as KeyExtractor<Request>>::Key>,
@@ -60,7 +104,30 @@ where
     limiter: Arc<RateLimiter<<KE as KeyExtractor<Request>>::Key, KS, C, MW>>,
 }
 
-impl<S, KE, Request, KS, C, MW> KeyedGovernor<S, KE, Request, KS, C, MW>
+impl<S, KE, Request>
+    Governor<
+        S,
+        KE,
+        Request,
+        DefaultKeyedStateStore<<KE as KeyExtractor<Request>>::Key>,
+        DefaultClock,
+        NoOpMiddleware,
+    >
+where
+    KE: KeyExtractor<Request> + Clone,
+    <KE as KeyExtractor<Request>>::Key: Clone + Eq,
+{
+    pub fn default(inner: S, key_extractor: KE, quota: Quota) -> Self {
+        Self {
+            inner,
+            key_extractor,
+            phantom: PhantomData,
+            limiter: Arc::new(RateLimiter::keyed(quota)),
+        }
+    }
+}
+
+impl<S, KE, Request, KS, C, MW> Governor<S, KE, Request, KS, C, MW>
 where
     KE: KeyExtractor<Request> + Clone,
     KS: KeyedStateStore<<KE as KeyExtractor<Request>>::Key>,
@@ -68,6 +135,21 @@ where
     MW: RateLimitingMiddleware<<KE as KeyExtractor<Request>>::Key, C::Instant>,
 {
     pub fn new(
+        inner: S,
+        key_extractor: KE,
+        quota: Quota,
+        state: KS,
+        clock: C,
+        middleware: MW,
+    ) -> Self {
+        Self {
+            inner,
+            key_extractor,
+            phantom: PhantomData,
+            limiter: Arc::new(RateLimiter::new(quota, state, clock, middleware)),
+        }
+    }
+    pub fn new_with_limiter(
         inner: S,
         key_extractor: KE,
         limiter: Arc<RateLimiter<<KE as KeyExtractor<Request>>::Key, KS, C, MW>>,
@@ -226,7 +308,7 @@ where
     }
 }
 
-impl<S, KE, Request, KS, C, MW> Service<Request> for KeyedGovernor<S, KE, Request, KS, C, MW>
+impl<S, KE, Request, KS, C, MW> Service<Request> for Governor<S, KE, Request, KS, C, MW>
 where
     S: Service<Request> + Clone,
     KE: KeyExtractor<Request> + Clone,
@@ -248,7 +330,7 @@ where
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx).map_err(|err| Either::Right(err))
+        self.inner.poll_ready(cx).map_err(Either::Right)
     }
 
     fn call(&mut self, req: Request) -> Self::Future {
@@ -272,6 +354,15 @@ where
     }
 }
 
+/// A [tower] [Layer](tower::Layer) providing keyed rate-limiting to an inner [Service]
+///
+/// ## Constructing a Layer
+///
+/// The type parameters are the same as for [Governor] (where they are documented in detail). The
+/// simplest way to construct a [Layer] instance is with [default()](Layer::default) which will
+/// select default implementations of all parameters. The most flexibile is [new()](Layer::new)
+/// which allows maximum flexibility in selecting implementations. Finally, the caller can construct
+/// a [RateLimiter] separately and use [new_with_limiter](Layer::new_with_limiter).
 pub struct Layer<Request, KE, KS, C, MW>
 where
     KE: KeyExtractor<Request> + Clone,
@@ -284,6 +375,53 @@ where
     phantom: PhantomData<Request>,
 }
 
+impl<Request, KE>
+    Layer<
+        Request,
+        KE,
+        DefaultKeyedStateStore<<KE as KeyExtractor<Request>>::Key>,
+        DefaultClock,
+        NoOpMiddleware,
+    >
+where
+    KE: KeyExtractor<Request> + Clone,
+    <KE as KeyExtractor<Request>>::Key: Clone + Eq,
+{
+    pub fn default(key_extractor: KE, quota: Quota) -> Self {
+        Self {
+            key_extractor,
+            limiter: Arc::new(RateLimiter::keyed(quota)),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<Request, KE, KS, C, MW> Layer<Request, KE, KS, C, MW>
+where
+    KE: KeyExtractor<Request> + Clone,
+    KS: KeyedStateStore<<KE as KeyExtractor<Request>>::Key>,
+    C: Clock,
+    MW: RateLimitingMiddleware<<KE as KeyExtractor<Request>>::Key, C::Instant>,
+{
+    pub fn new(key_extractor: KE, quota: Quota, state: KS, clock: C, middleware: MW) -> Self {
+        Self {
+            key_extractor,
+            limiter: Arc::new(RateLimiter::new(quota, state, clock, middleware)),
+            phantom: PhantomData,
+        }
+    }
+    pub fn new_with_limiter(
+        key_extractor: KE,
+        limiter: RateLimiter<<KE as KeyExtractor<Request>>::Key, KS, C, MW>,
+    ) -> Self {
+        Self {
+            key_extractor,
+            limiter: Arc::new(limiter),
+            phantom: PhantomData,
+        }
+    }
+}
+
 impl<S, KE, Request, KS, C, MW> tower::Layer<S> for Layer<Request, KE, KS, C, MW>
 where
     KE: KeyExtractor<Request> + Clone,
@@ -291,15 +429,15 @@ where
     C: Clock,
     MW: RateLimitingMiddleware<<KE as KeyExtractor<Request>>::Key, C::Instant>,
 {
-    type Service = KeyedGovernor<S, KE, Request, KS, C, MW>;
+    type Service = Governor<S, KE, Request, KS, C, MW>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        KeyedGovernor::new(inner, self.key_extractor.clone(), self.limiter.clone())
+        Governor::new_with_limiter(inner, self.key_extractor.clone(), self.limiter.clone())
     }
 }
 
 #[cfg(test)]
-mod first_test {
+mod test {
     use std::{collections::HashMap, convert::Infallible, num::NonZeroU32, sync::RwLock};
 
     use dashmap::DashMap;
@@ -323,7 +461,7 @@ mod first_test {
         }
     }
 
-    // Next, I need some middleware. Seems like this should be in the governor crate (?)
+    // Next, I need some middleware. Let's try a very simple implementation:
     #[derive(Debug)]
     struct KeyedHashmapMiddleware {
         // The MW doesn't have to be Clone
@@ -371,7 +509,7 @@ mod first_test {
         let key_extractor = RecordingRequestKeyExtractor;
         let limiter = governor::RateLimiter::keyed(Quota::per_second(NonZeroU32::new(1).unwrap()))
             .use_middleware(KeyedHashmapMiddleware::new());
-        let mut governor = KeyedGovernor::new(inner, key_extractor, Arc::new(limiter));
+        let mut governor = Governor::new_with_limiter(inner, key_extractor, Arc::new(limiter));
 
         governor.ready().await.unwrap().call(0).await.unwrap();
         governor.ready().await.unwrap().call(0).await.unwrap(); // 0: Should be rate limited
@@ -388,7 +526,7 @@ mod first_test {
         assert!(intervals[4].as_millis() < 1);
     }
 
-    // Now, let's see if we can get rid of that lock
+    // Now, let's see if we can get rid of that lock:
     #[derive(Debug)]
     struct KeyedDashmapMiddleware {
         keys: DashMap<usize, Gcra>,
@@ -434,7 +572,7 @@ mod first_test {
         let key_extractor = RecordingRequestKeyExtractor;
         let limiter = governor::RateLimiter::keyed(Quota::per_second(NonZeroU32::new(1).unwrap()))
             .use_middleware(KeyedDashmapMiddleware::new());
-        let mut governor = KeyedGovernor::new(inner, key_extractor, Arc::new(limiter));
+        let mut governor = Governor::new_with_limiter(inner, key_extractor, Arc::new(limiter));
 
         governor.ready().await.unwrap().call(0).await.unwrap();
         governor.ready().await.unwrap().call(0).await.unwrap(); // 0: Should be rate limited
