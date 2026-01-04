@@ -3,7 +3,11 @@ name = "tower-gcra"
 version = "0.0.1"
 edition = "2024"
 
+[features]
+default = ["dashmap"]
+
 [dependencies]
+dashmap = { version = "6.1.0", optional = true }
 either = "1.15.0"
 futures = "0.3.31"
 governor = "=0.10.4"

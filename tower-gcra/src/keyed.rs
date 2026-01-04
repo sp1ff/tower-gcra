@@ -526,7 +526,6 @@ mod test {
         assert!(intervals[4].as_millis() < 1);
     }
 
-    // Now, let's see if we can get rid of that lock:
     #[derive(Debug)]
     struct KeyedDashmapMiddleware {
         keys: DashMap<usize, Gcra>,

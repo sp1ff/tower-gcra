@@ -258,6 +258,7 @@
 //! at the time of this writing, it doesn't support per-key quotas.
 
 pub mod direct;
+pub mod extractors;
 #[cfg(test)]
 pub mod fixtures;
 pub mod keyed;
