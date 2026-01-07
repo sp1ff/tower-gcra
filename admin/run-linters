@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Lint the `tower-gcra` crate
+set -x
+
+if rg -t rust 'TODO|TOOD|LATER|\\todo|todo!|dbg!'; then
+    echo "You have TODO-s" 2>&1
+    exit 1
+fi
+
+set -e
+cargo clippy -- --no-deps -Dwarnings
+cargo fmt -- --check
+cargo audit
+RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps
+

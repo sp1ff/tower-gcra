@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Build & test the `tower-gcra` crate
+
+set -ex
+
+cargo build
+cargo test

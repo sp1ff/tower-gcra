@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Michael Herstine <sp1ff@pobox.com>
+// Copyright (C) 2025-2026 Michael Herstine <sp1ff@pobox.com>
 //
 // This file is part of tower-gcra.
 //
@@ -88,9 +88,9 @@ pub trait KeyExtractor<Request> {
 ///
 /// ## On Governor Being `Clone`
 ///
-/// [Governor] instances can be cloned; they share a reference (via an [Arc]) to a single rate
-/// limiter, so cloning won't result in rate limits being evaded.
-#[derive(Clone)]
+/// [Governor] instances can be cloned so long as the inner service itself is `Clone`; they share a
+/// reference (via an [Arc]) to a single rate limiter, so cloning won't result in rate limits being
+/// evaded.
 pub struct Governor<S, KE, Request, KS, C, MW>
 where
     KE: KeyExtractor<Request> + Clone,
@@ -102,6 +102,24 @@ where
     key_extractor: KE,
     phantom: PhantomData<Request>,
     limiter: Arc<RateLimiter<<KE as KeyExtractor<Request>>::Key, KS, C, MW>>,
+}
+
+impl<S, KE, Request, KS, C, MW> Clone for Governor<S, KE, Request, KS, C, MW>
+where
+    S: Clone,
+    KE: KeyExtractor<Request> + Clone,
+    KS: KeyedStateStore<<KE as KeyExtractor<Request>>::Key>,
+    C: Clock,
+    MW: RateLimitingMiddleware<<KE as KeyExtractor<Request>>::Key, C::Instant>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            key_extractor: self.key_extractor.clone(),
+            phantom: self.phantom,
+            limiter: self.limiter.clone(),
+        }
+    }
 }
 
 impl<S, KE, Request>
@@ -441,8 +459,9 @@ mod test {
     use std::{collections::HashMap, convert::Infallible, num::NonZeroU32, sync::RwLock};
 
     use dashmap::DashMap;
-    use governor::{Quota, clock::QuantaClock, gcra::Gcra};
-    use tower::ServiceExt;
+    use governor::{Quota, clock::QuantaClock, gcra::Gcra, state::keyed::DefaultKeyedStateStore};
+    use nonzero::nonzero;
+    use tower::{ServiceBuilder, ServiceExt};
 
     use crate::fixtures::RecordingService;
 
@@ -586,5 +605,36 @@ mod test {
         assert!(intervals[2].as_millis() < 1);
         assert!(intervals[3].as_millis() >= 999);
         assert!(intervals[4].as_millis() < 1);
+    }
+
+    #[test]
+    fn layer_tests() {
+        async fn handle(n: usize) -> usize {
+            n
+        }
+
+        let _ = ServiceBuilder::new()
+            .layer(Layer::default(
+                RecordingRequestKeyExtractor,
+                Quota::per_second(nonzero!(10u32)),
+            ))
+            .service_fn(handle);
+
+        let _ = ServiceBuilder::new()
+            .layer(Layer::<usize, _, DefaultKeyedStateStore<_>, _, _>::new(
+                RecordingRequestKeyExtractor,
+                Quota::per_second(nonzero!(10u32)),
+                DefaultKeyedStateStore::default(),
+                DefaultClock::default(),
+                NoOpMiddleware::default(),
+            ))
+            .service_fn(handle);
+
+        let _ = ServiceBuilder::new()
+            .layer(Layer::new_with_limiter(
+                RecordingRequestKeyExtractor,
+                RateLimiter::keyed(Quota::per_second(nonzero!(10u32))),
+            ))
+            .service_fn(handle);
     }
 }

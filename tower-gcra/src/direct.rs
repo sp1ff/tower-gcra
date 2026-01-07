@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Michael Herstine <sp1ff@pobox.com>
+// Copyright (C) 2025-2026 Michael Herstine <sp1ff@pobox.com>
 //
 // This file is part of tower-gcra.
 //
@@ -220,16 +220,12 @@ where
                             Ok(_) => this.state.set(FutureState::Call {
                                 fut: inner.unwrap().call(req.unwrap()),
                             }),
-                            Err(not_until) => {
-                                // TODO(sp1ff): debug!
-                                eprintln!("Rate-limited!");
-                                this.state.set(FutureState::Ready {
-                                    fut: sleep(not_until.wait_time_from(limiter.clock().now())),
-                                    limiter,
-                                    inner,
-                                    req,
-                                })
-                            }
+                            Err(not_until) => this.state.set(FutureState::Ready {
+                                fut: sleep(not_until.wait_time_from(limiter.clock().now())),
+                                limiter,
+                                inner,
+                                req,
+                            }),
                         }
                     }
                     Poll::Pending => {
@@ -342,7 +338,7 @@ where
 #[cfg(test)]
 mod test {
     use nonzero::nonzero;
-    use tower::{Service, ServiceExt};
+    use tower::{Service, ServiceBuilder, ServiceExt};
 
     use crate::fixtures::RecordingService;
 
@@ -390,5 +386,33 @@ mod test {
 
         // Rate-limiting should start showing-up on the last invocation:
         assert!(intervals.iter().last().unwrap().as_millis() > 1);
+    }
+
+    #[test]
+    fn layer_tests() {
+        async fn handle(n: usize) -> usize {
+            n
+        }
+
+        let _ = ServiceBuilder::new()
+            .layer(Layer::<usize, _, _, _>::default(Quota::per_second(
+                nonzero!(10u32),
+            )))
+            .service_fn(handle);
+
+        let _ = ServiceBuilder::new()
+            .layer(Layer::<usize, _, _, _>::new(
+                Quota::per_second(nonzero!(10u32)),
+                InMemoryState::default(),
+                DefaultClock::default(),
+                NoOpMiddleware::default(),
+            ))
+            .service_fn(handle);
+
+        let _ = ServiceBuilder::new()
+            .layer(Layer::<usize, _, _, _>::new_with_limiter(
+                RateLimiter::direct(Quota::per_second(nonzero!(10u32))),
+            ))
+            .service_fn(handle);
     }
 }

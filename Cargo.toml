@@ -7,4 +7,4 @@ members = [
 resolver = "3"
 
 [patch.crates-io]
-governor = { version = "=0.10.4", path = "../governor/governor" }
+governor = { version = "=0.10.4", git = "https://github.com/sp1ff/governor.git", branch = "issue-193"}
