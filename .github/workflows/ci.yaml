@@ -1,0 +1,62 @@
+# This is the continuous integration job for `tower-gcra`.
+
+# It runs on Ubuntu, using three versions of Rust: a "pined" least
+# supported version, the current stable version and the current
+# nightly version. After building, it will run the unit test suite.
+
+name: Continuous Integration
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+  schedule:
+    - cron: '6 01 * * *'
+
+jobs:
+  build:
+    name: build
+    strategy:
+      matrix:
+        rust-build:
+          - pinned
+          - stable
+          - nightly
+        os: [ubuntu-latest]
+        include:
+        - rust-build: pinned
+          os: ubuntu-latest
+          rust: 1.85
+        - rust-build: stable
+          os: ubuntu-latest
+          rust: stable
+        - rust-build: nightly
+          os: ubuntu-latest
+          rust: nightly
+    runs-on: ${{ matrix.os }}
+    env:
+      RUST_BACKTRACE: 1
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+
+    - name: Install tools
+      shell: bash
+      run: |
+        rustup component add clippy
+        rustup component add rustfmt
+        cargo install --locked cargo-audit
+
+    - name: Lint
+      shell: bash
+      run: 'admin/run-linters'
+
+    - name: Build tower-gcra & run unit tests
+      shell: bash
+      run: 'admin/build-and-test'
