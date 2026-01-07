@@ -2,7 +2,7 @@
 #+DESCRIPTION: Tower middleware for rate-limiting based on GCRA
 #+AUTHOR: Michael Herstine
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2026-01-03 Sat 07:41>
+#+DATE: <2026-01-07 Wed 10:24>
 #+AUTODATE: t
 #+OPTIONS: toc:nil org-md-headline-style:setext *:t ^:nil
 #+STARTUP: overview
@@ -41,6 +41,6 @@ tower-gcra uses the Rust 2024 edition, so Rust 1.85 is required.
 #+END_SRC
 * Status & Roadmap
 
-This is a new crate. I've chosen the version number (0.x) in an attempt to convey that.
+This is a new crate. I've chosen the version number (0.x) in an attempt to convey that. In particular, I can't publish this on crates.io until my [[https://github.com/boinkor-net/governor/pull/292][PR]] is merged into governor (because crates.io does not allow packages to be published with dependencies on code published outside of crates.io, other than dev dependencies). So if you want to use it, you'll have to either use a git dependency here or clone this repo & use a path dependency, for now.
 
 Bugs, comments, suggestions and contributions are welcome, on [[https://x.com/unwoundstack][X]], [[https://indieweb.social/@sp1ff][Mastodon]], in the [[https://github.com/sp1ff/tower-gcra/issues][issues]] or at [[mailto:sp1ff@pobox.com][sp1ff@pobox.com]].
