@@ -4,6 +4,7 @@ version = "0.0.1"
 authors = ["Michael Herstine <sp1ff@pobox.com>"]
 edition = "2024"
 license = "GPLv3+"
+readme = "README.md"
 homepage = "https://github.com/sp1ff/tower-gcra"
 repository = "https://github.com/sp1ff/tower-gcra.git"
 description = "A rate-limiting middleware for Tower using GCRA"
