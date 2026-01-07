@@ -39,6 +39,7 @@ use std::{
 };
 
 use either::Either;
+use futures_timer::Delay;
 use governor::{
     NotUntil, Quota, RateLimiter,
     clock::{Clock, DefaultClock},
@@ -46,7 +47,6 @@ use governor::{
     state::keyed::{DefaultKeyedStateStore, KeyedStateStore},
 };
 use pin_project_lite::pin_project;
-use tokio::time::{Sleep, sleep};
 use tower::Service;
 
 /// Types implementing `KeyExtractor<Request>` extract rate-limiting keys from `Request`s.
@@ -198,7 +198,7 @@ pin_project! {
         },
         Ready {
             #[pin]
-            fut: Sleep,
+            fut: Delay,
             // Nothing else needs to be pinned:
             limiter: Arc<RateLimiter<<KE as KeyExtractor<Request>>::Key, KS, C, MW>>,
             key: Option<<KE as KeyExtractor<Request>>::Key>,
@@ -249,7 +249,7 @@ where
     ) -> Self {
         Self {
             state: FutureState::Ready {
-                fut: sleep(dur),
+                fut: Delay::new(dur),
                 limiter,
                 key: Some(key),
                 inner: Some(inner),
@@ -310,7 +310,7 @@ where
                                 fut: inner.unwrap().call(req.unwrap()),
                             }),
                             Err(not_until) => this.state.set(FutureState::Ready {
-                                fut: sleep(not_until.wait_time_from(limiter.clock().now())),
+                                fut: Delay::new(not_until.wait_time_from(limiter.clock().now())),
                                 limiter,
                                 key,
                                 inner,

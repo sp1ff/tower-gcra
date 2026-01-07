@@ -34,6 +34,7 @@ use std::{
     time::Duration,
 };
 
+use futures_timer::Delay;
 use governor::{
     NotUntil, Quota, RateLimiter,
     clock::{Clock, DefaultClock},
@@ -41,7 +42,6 @@ use governor::{
     state::{DirectStateStore, InMemoryState, NotKeyed},
 };
 use pin_project_lite::pin_project;
-use tokio::time::{Sleep, sleep};
 use tower::Service;
 
 /// A [tower] [Service] that rate-limits requests using direct rate limiting
@@ -134,7 +134,7 @@ pin_project! {
     {
         Ready {
             #[pin]
-            fut: Sleep,
+            fut: Delay,
             // Nothing else needs to be pinned:
             limiter: Arc<RateLimiter<NotKeyed, KS, C, MW>>,
             inner: Option<S>,
@@ -175,7 +175,7 @@ where
     ) -> Self {
         Self {
             state: FutureState::Ready {
-                fut: sleep(dur),
+                fut: Delay::new(dur),
                 limiter,
                 inner: Some(inner),
                 req: Some(req),
@@ -221,7 +221,7 @@ where
                                 fut: inner.unwrap().call(req.unwrap()),
                             }),
                             Err(not_until) => this.state.set(FutureState::Ready {
-                                fut: sleep(not_until.wait_time_from(limiter.clock().now())),
+                                fut: Delay::new(not_until.wait_time_from(limiter.clock().now())),
                                 limiter,
                                 inner,
                                 req,

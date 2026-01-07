@@ -79,7 +79,7 @@
 //! }
 //! let duration = Instant::now() - then;
 //! // Requests 1 & 2 (of 3) were rate-limited at 1/sec.
-//! assert!(duration.as_millis() > 2000);
+//! assert!(duration.as_millis() >= 2000);
 //! # Ok(())
 //! # }
 //! ```
