@@ -16,6 +16,7 @@ keywords = ["tower", "rate-limiting", "rate-limit", "gcra"]
 default = ["dashmap"]
 
 [dependencies]
+bytes = ">=1.11.1"
 dashmap = { version = "6.1.0", optional = true }
 either = "1.15.0"
 futures = "0.3.31"
