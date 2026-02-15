@@ -75,7 +75,7 @@ use tower::Service;
 ///
 /// [Governor] instances can be cloned; they share a reference (via an [Arc]) to a single rate
 /// limiter, so cloning won't result in rate limits being evaded.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Governor<S, Request, KS, C, MW>
 where
     // These trait bounds are all required by `RateLimiter`
@@ -86,6 +86,23 @@ where
     inner: S,
     phantom: PhantomData<Request>,
     limiter: Arc<RateLimiter<NotKeyed, KS, C, MW>>,
+}
+
+impl<S, Request, KS, C, MW> Clone for Governor<S, Request, KS, C, MW>
+where
+    S: Clone,
+    // These trait bounds are all required by `RateLimiter`
+    KS: DirectStateStore,
+    C: Clock,
+    MW: RateLimitingMiddleware<NotKeyed, C::Instant>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            phantom: self.phantom,
+            limiter: self.limiter.clone(),
+        }
+    }
 }
 
 impl<S, Request> Governor<S, Request, InMemoryState, DefaultClock, NoOpMiddleware> {
