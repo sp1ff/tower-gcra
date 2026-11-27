@@ -10,6 +10,8 @@ on:
   workflow_dispatch:
   pull_request:
   push:
+    branches:
+      - master
   schedule:
     - cron: '6 01 * * *'
 
@@ -22,17 +24,15 @@ jobs:
           - pinned
           - stable
           - nightly
-        os: [ubuntu-latest]
+        os: [ubuntu-26.04]
         include:
         - rust-build: pinned
-          os: ubuntu-latest
-          rust: 1.85
+          # 2026-11-27: cargo adit, currently at 0.23.0, requires rust 1.88
+          rust: 1.88
         - rust-build: stable
-          os: ubuntu-latest
-          rust: stable
+          rust: 1.100.0
         - rust-build: nightly
-          os: ubuntu-latest
-          rust: nightly
+          rust: nightly-2026-11-09
     runs-on: ${{ matrix.os }}
     env:
       RUST_BACKTRACE: 1
@@ -45,13 +45,12 @@ jobs:
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ matrix.rust }}
+        components: "clippy, rustfmt"
 
     - name: Install tools
       shell: bash
       run: |
-        rustup component add clippy
-        rustup component add rustfmt
-        cargo install --locked cargo-audit
+        cargo install --force --locked cargo-audit
 
     - name: Lint
       shell: bash
