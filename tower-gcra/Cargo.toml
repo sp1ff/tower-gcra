@@ -16,18 +16,17 @@ keywords = ["tower", "rate-limiting", "rate-limit", "gcra"]
 default = ["dashmap"]
 
 [dependencies]
-bytes = ">=1.11.1" # RUSTSEC-2026-0007
 dashmap = { version = "6.1.0", optional = true }
-either = "1.15.0"
-futures = "0.3.31"
 futures-timer = "3.0.3"
 governor = { version = "=0.10.4", git = "https://github.com/sp1ff/governor.git", branch = "issue-193"}
-nonzero = "0.2.0"
 pin-project-lite = "0.2.16"
 tower = { version = "0.5.2", features = ["util"] }
 
 [dev-dependencies]
+bytes = "1.12.2"
 dashmap = "6.1.0"
+futures = "0.3.34"
 http = "1.4.0"
 itertools = "0.14.0"
+nonzero = "0.2.0"
 tokio = { version = "1.48.0", features = ["macros", "rt", "rt-multi-thread"] }

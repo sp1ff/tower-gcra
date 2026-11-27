@@ -38,7 +38,6 @@ use std::{
     time::Duration,
 };
 
-use either::Either;
 use futures_timer::Delay;
 use governor::{
     NotUntil, Quota, RateLimiter,
@@ -47,7 +46,7 @@ use governor::{
     state::keyed::{DefaultKeyedStateStore, KeyedStateStore},
 };
 use pin_project_lite::pin_project;
-use tower::Service;
+use tower::{BoxError, Service};
 
 /// Types implementing `KeyExtractor<Request>` extract rate-limiting keys from `Request`s.
 /// A "key" is any type that implements [Hash].
@@ -269,6 +268,7 @@ where
 impl<S, KE, Request, KS, C, MW> Future for CallFuture<S, KE, Request, KS, C, MW>
 where
     S: Service<Request>,
+    <S as Service<Request>>::Error: StdError + Send + Sync + 'static,
     KE: KeyExtractor<Request>,
     KS: KeyedStateStore<<KE as KeyExtractor<Request>>::Key>,
     C: Clock,
@@ -278,10 +278,7 @@ where
             NegativeOutcome = NotUntil<C::Instant>,
         >,
 {
-    type Output = StdResult<
-        <S as Service<Request>>::Response,
-        Either<<KE as KeyExtractor<Request>>::Error, <S as Service<Request>>::Error>,
-    >;
+    type Output = StdResult<<S as Service<Request>>::Response, BoxError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
@@ -289,7 +286,7 @@ where
         loop {
             match this.state.as_mut().project() {
                 FutureStateProj::Error { source } => {
-                    return Poll::Ready(Err(Either::Left(std::mem::take(source).unwrap())));
+                    return Poll::Ready(Err(Box::new(std::mem::take(source).unwrap())));
                 }
                 FutureStateProj::Ready {
                     fut,
@@ -320,7 +317,7 @@ where
                     }
                     Poll::Pending => return Poll::Pending,
                 },
-                FutureStateProj::Call { fut } => return fut.poll(cx).map_err(Either::Right),
+                FutureStateProj::Call { fut } => return fut.poll(cx).map_err(Into::into),
             }
         }
     }
@@ -329,6 +326,7 @@ where
 impl<S, KE, Request, KS, C, MW> Service<Request> for Governor<S, KE, Request, KS, C, MW>
 where
     S: Service<Request> + Clone,
+    <S as Service<Request>>::Error: StdError + Send + Sync + 'static,
     KE: KeyExtractor<Request> + Clone,
     KS: KeyedStateStore<<KE as KeyExtractor<Request>>::Key>,
     C: Clock,
@@ -340,7 +338,7 @@ where
 {
     type Response = S::Response;
 
-    type Error = Either<<KE as KeyExtractor<Request>>::Error, S::Error>;
+    type Error = BoxError;
 
     type Future = CallFuture<S, KE, Request, KS, C, MW>;
 
@@ -348,7 +346,7 @@ where
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx).map_err(Either::Right)
+        self.inner.poll_ready(cx).map_err(Into::into)
     }
 
     fn call(&mut self, req: Request) -> Self::Future {
