@@ -1,5 +1,12 @@
 tower-gcra News -- history of user-visible changes               -*- outline -*-
 
+* UNRELEASED
+
+** User-visible changes
+
+*** Return a type-erased error
+
+...in keeping with tower guidelines.
 * 0.0 releases
 
 ** 0.0.1

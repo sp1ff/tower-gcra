@@ -1,17 +1,17 @@
 // Copyright (C) 2025-2026 Michael Herstine <sp1ff@pobox.com>
 //
-// This file is part of tower-client-governor.
+// This file is part of tower-gcra.
 //
-// tower-client-governor is free software: you can redistribute it and/or modify it under the terms
-// of the GNU General Public License as published by the Free Software Foundation, either version 3
-// of the License, or (at your option) any later version.
+// tower-gcra is free software: you can redistribute it and/or modify it under the terms of the GNU
+// General Public License as published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
 //
-// tower-client-governor is distributed in the hope that it will be useful, but WITHOUT ANY
-// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
-// PURPOSE. See the GNU General Public License for more details.
+// tower-gcra is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+// even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+// General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with
-// tower-client-governor. If not, see <http://www.gnu.org/licenses/>.
+// tower-gcra. If not, see <http://www.gnu.org/licenses/>.
 
 //! # tower-gcra
 //!
@@ -256,6 +256,29 @@
 //! It is, however, [Clone]. It, like this crate, handles rate-limiting in [call()] (rather than
 //! [poll_ready()]), presumably also because it has access to the incoming request there. Lastly,
 //! at the time of this writing, it doesn't support per-key quotas.
+//!
+//! ## Erors
+//!
+//! The direct rate limiter introduces no new failure modes of its own and simply passes along
+//! whatever error type is associated with the [Service] it wraps. The keyed rate limiter, is a bit
+//! more interesting in this regard, since it introduces new points of failure. My initial
+//! inclination was to retain as much type information as possible, by defining the associated
+//! `Error` type as something like `Either<MyError, S::Error>` (where `S` is our wrapped [Service]).
+//!
+//! This turns out, however, to be increasingly inconvenient as the middleware "stack" in it is
+//! being used grows. As the number of layers increased, the error type became increasingly complex
+//! & difficult to write down. If callers wanted to match against it for error-handling purposes,
+//! they had to write lengthy, tedious match arms in order to do so. The arrangement was also
+//! brittle, in that adding or removing a layer to the stack would change this very complex type,
+//! requiring extensive code changes for callers that depended on it.
+//!
+//! The tower guidelines [discuss] this, but I somehow missed this when I first authored the crate.
+//! The convention is to just return a `Box<dyn Error + Send + Sync>`, conveniently aliased as
+//! `BoxError`, which is what the keyed rate limiter [Service] now does. The discussion behind that
+//! decision in the tower project can be found [here], should the reader be interested.
+//!
+//! [discuss]: https://github.com/tower-rs/tower/blob/master/guides/building-a-middleware-from-scratch.md#the-error-type
+//! [here]: https://github.com/tower-rs/tower/issues/131
 
 pub mod direct;
 pub mod extractors;

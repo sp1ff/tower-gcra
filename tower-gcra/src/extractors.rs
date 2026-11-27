@@ -1,17 +1,17 @@
 // Copyright (C) 2025-2026 Michael Herstine <sp1ff@pobox.com>
 //
-// This file is part of tower-client-governor.
+// This file is part of tower-gcra.
 //
-// tower-client-governor is free software: you can redistribute it and/or modify it under the terms
-// of the GNU General Public License as published by the Free Software Foundation, either version 3
-// of the License, or (at your option) any later version.
+// tower-gcra is free software: you can redistribute it and/or modify it under the terms of the GNU
+// General Public License as published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
 //
-// tower-client-governor is distributed in the hope that it will be useful, but WITHOUT ANY
-// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
-// PURPOSE. See the GNU General Public License for more details.
+// tower-gcra is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+// even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+// General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License along with
-// tower-client-governor. If not, see <http://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU General Public License along with tower-gcra. If not,
+// see <http://www.gnu.org/licenses/>.
 
 // I plan on adding some `KeyExtractor` implementations here. For now, I'm just going to add keyed
 // middleware that I hope to contribute to the governor crate at some point.
