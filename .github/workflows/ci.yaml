@@ -27,7 +27,8 @@ jobs:
         os: [ubuntu-26.04]
         include:
         - rust-build: pinned
-          rust: 1.85
+          # 2026-11-27: cargo adit, currently at 0.23.0, requires rust 1.88
+          rust: 1.88
         - rust-build: stable
           rust: 1.100.0
         - rust-build: nightly
